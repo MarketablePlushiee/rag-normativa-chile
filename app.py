@@ -4,6 +4,7 @@ import shutil
 from typing import List, Any
 import streamlit as st
 
+from pydantic import ConfigDict, Field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -35,23 +36,23 @@ if not groq_api_key:
 
 os.environ["GROQ_API_KEY"] = groq_api_key
 
-# --- CLASE DE BÚSQUEDA HÍBRIDA PROPIA (RESISTENTE A CAMBIOS DE VERSIÓN) ---
+# --- CLASE DE BÚSQUEDA HÍBRIDA ROBUSTA ---
 class CustomHybridRetriever(BaseRetriever):
-    bm25: Any
-    faiss_retriever: Any
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    bm25: Any = Field(...)
+    faiss_retriever: Any = Field(...)
     k: int = 8
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
     ) -> List[Document]:
-        # Búsqueda simultánea en FAISS y BM25
         docs_faiss = self.faiss_retriever.invoke(query)
         docs_bm25 = self.bm25.invoke(query)
         
         seen = set()
         merged = []
         
-        # Fusión e intercalado de resultados con deduplicación
         for doc in docs_faiss + docs_bm25:
             key = doc.page_content.strip()
             if key not in seen:
@@ -63,7 +64,7 @@ class CustomHybridRetriever(BaseRetriever):
 
 # --- FUNCIÓN DE SANITIZACIÓN PARA FORMATO MARKDOWN / HTML ---
 def sanitize_markdown(text: str) -> str:
-    """Elimina etiquetas HTML crudas (como <br>) para corregir la renderización en tablas y listas de Streamlit."""
+    """Elimina etiquetas HTML crudas (como <br>) para corregir la renderización en tablas y listas."""
     if not text:
         return ""
     cleaned = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
@@ -71,16 +72,18 @@ def sanitize_markdown(text: str) -> str:
     cleaned = re.sub(r'</?(?:b|i|strong|em|span|p|div|tr|td|table)[^>]*>', '', cleaned, flags=re.IGNORECASE)
     return cleaned
 
-# --- BARRA LATERAL ---
+# --- BARRA LATERAL CON MODELOS OFICIALES DE GROQ ---
 with st.sidebar:
     st.header("⚙️ Configuración")
     
     selected_model = st.selectbox(
         "Modelo LLM",
         options=[
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-            "qwen/qwen3.8-27b"
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it",
+            "deepseek-r1-distill-llama-70b"
         ],
         index=0
     )
