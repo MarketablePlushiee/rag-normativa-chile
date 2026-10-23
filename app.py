@@ -42,7 +42,7 @@ class CustomHybridRetriever(BaseRetriever):
     
     bm25: Any = Field(...)
     faiss_retriever: Any = Field(...)
-    k: int = 8
+    k: int = 10
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
@@ -64,7 +64,6 @@ class CustomHybridRetriever(BaseRetriever):
 
 # --- FUNCIÓN DE SANITIZACIÓN PARA FORMATO MARKDOWN / HTML ---
 def sanitize_markdown(text: str) -> str:
-    """Elimina etiquetas HTML crudas (como <br>) para corregir la renderización en tablas y listas."""
     if not text:
         return ""
     cleaned = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
@@ -72,7 +71,15 @@ def sanitize_markdown(text: str) -> str:
     cleaned = re.sub(r'</?(?:b|i|strong|em|span|p|div|tr|td|table)[^>]*>', '', cleaned, flags=re.IGNORECASE)
     return cleaned
 
-# --- BARRA LATERAL CON MODELOS DISPONIBLES EN TU CATÁLOGO ---
+def clean_pdf_text(text: str) -> str:
+    """Limpia caracteres invisibles y estandariza encabezados de artículos."""
+    if not text:
+        return ""
+    text = text.replace('\xa0', ' ').replace('\r', '\n')
+    text = re.sub(r'[ \t]+', ' ', text)
+    return text
+
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuración")
     
@@ -100,7 +107,6 @@ st.markdown(
     "(**Ley 16.744**, **DS 594**, **DS 44**, **Código del Trabajo**, entre otros)."
 )
 
-# --- OPTIMIZACIÓN DE RECURSOS Y CACHÉ ---
 @st.cache_resource(show_spinner=False)
 def load_embeddings():
     return HuggingFaceEmbeddings(
@@ -135,10 +141,21 @@ def setup_rag_retriever():
         if not docs:
             return None
         
+        # Normalizar el texto extraído de todos los documentos
+        for d in docs:
+            d.page_content = clean_pdf_text(d.page_content)
+        
+        # Regex insensible a mayúsculas/tildes para dividir correctamente por artículos
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1200,
-            chunk_overlap=250,
-            separators=[r"\n(?=(?:Artículo|Art\.|Decreto|Título|Capítulo)\b)", "\n\n", "\n", " ", ""],
+            chunk_size=800,
+            chunk_overlap=150,
+            separators=[
+                r"\n(?=(?i:Art[íi]culo|Art\.|Decreto|T[íi]tulo|Cap[íi]tulo)\s*\d+)",
+                "\n\n", 
+                "\n", 
+                " ", 
+                ""
+            ],
             is_separator_regex=True
         )
         chunks = text_splitter.split_documents(docs)
@@ -148,18 +165,18 @@ def setup_rag_retriever():
     
     faiss_retriever = db.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 8}
+        search_kwargs={"k": 10}
     )
     
     all_docs = list(db.docstore._dict.values())
     if all_docs:
         bm25_retriever = BM25Retriever.from_documents(all_docs)
-        bm25_retriever.k = 8
+        bm25_retriever.k = 10
         
         return CustomHybridRetriever(
             bm25=bm25_retriever,
             faiss_retriever=faiss_retriever,
-            k=8
+            k=10
         )
     
     return faiss_retriever
@@ -179,6 +196,18 @@ with st.spinner("Cargando base normativa..."):
 if retriever is None:
     st.warning(f"⚠️ No se encontraron documentos (PDF o TXT) en la carpeta `{DATA_PATH}`.")
     st.stop()
+
+# --- DIAGNÓSTICO EN LA BARRA LATERAL ---
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("📊 Estado de la Base")
+    if hasattr(retriever, 'bm25'):
+        total_chunks = len(retriever.bm25.docs)
+        sources = sorted(list(set([os.path.basename(d.metadata.get("source", "")) for d in retriever.bm25.docs])))
+        st.success(f"**{total_chunks}** fragmentos indexados")
+        with st.expander("📁 Archivos cargados"):
+            for s in sources:
+                st.write(f"- `{s}`")
 
 # --- PROMPT DEL SISTEMA ---
 prompt_template = ChatPromptTemplate.from_template(
