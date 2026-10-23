@@ -58,7 +58,7 @@ if prompt := st.chat_input("¿Qué consulta tienes sobre el DS 594 o la Ley 16.7
                     )
                     
                     response = client.models.generate_content(
-                        model='gemini-1.5-flash',  # <--- Modelo estable y rápido
+                        model='gemini-2.0-flash',  # <--- Cambia esto
                         contents=prompt,
                         config=types.GenerateContentConfig(
                             system_instruction=system_instruction,
