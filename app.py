@@ -8,7 +8,16 @@ from langchain_community.document_loaders import PyPDFDirectoryLoader, Directory
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
+
+# Importación de EnsembleRetriever con compatibilidad multiversión de LangChain
+try:
+    from langchain_community.retrievers import EnsembleRetriever
+except (ImportError, ModuleNotFoundError):
+    try:
+        from langchain.retrievers.ensemble import EnsembleRetriever
+    except (ImportError, ModuleNotFoundError):
+        from langchain.retrievers import EnsembleRetriever
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
