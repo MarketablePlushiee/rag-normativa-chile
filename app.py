@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+from typing import List, Any
 import streamlit as st
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -9,15 +10,9 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
 
-# Importación de EnsembleRetriever con compatibilidad multiversión de LangChain
-try:
-    from langchain_community.retrievers import EnsembleRetriever
-except (ImportError, ModuleNotFoundError):
-    try:
-        from langchain.retrievers.ensemble import EnsembleRetriever
-    except (ImportError, ModuleNotFoundError):
-        from langchain.retrievers import EnsembleRetriever
-
+from langchain_core.retrievers import BaseRetriever
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
@@ -40,16 +35,39 @@ if not groq_api_key:
 
 os.environ["GROQ_API_KEY"] = groq_api_key
 
+# --- CLASE DE BÚSQUEDA HÍBRIDA PROPIA (RESISTENTE A CAMBIOS DE VERSIÓN) ---
+class CustomHybridRetriever(BaseRetriever):
+    bm25: Any
+    faiss_retriever: Any
+    k: int = 8
+
+    def _get_relevant_documents(
+        self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
+    ) -> List[Document]:
+        # Búsqueda simultánea en FAISS y BM25
+        docs_faiss = self.faiss_retriever.invoke(query)
+        docs_bm25 = self.bm25.invoke(query)
+        
+        seen = set()
+        merged = []
+        
+        # Fusión e intercalado de resultados con deduplicación
+        for doc in docs_faiss + docs_bm25:
+            key = doc.page_content.strip()
+            if key not in seen:
+                seen.add(key)
+                merged.append(doc)
+                if len(merged) >= self.k:
+                    break
+        return merged
+
 # --- FUNCIÓN DE SANITIZACIÓN PARA FORMATO MARKDOWN / HTML ---
 def sanitize_markdown(text: str) -> str:
     """Elimina etiquetas HTML crudas (como <br>) para corregir la renderización en tablas y listas de Streamlit."""
     if not text:
         return ""
-    # Reemplazar etiquetas <br> o <br/> por saltos de línea estándar
     cleaned = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
-    # Reemplazar guiones pegados tras salto de línea dentro de celdas de tabla
     cleaned = re.sub(r'\n-\s*', '\n* ', cleaned)
-    # Limpiar otras etiquetas HTML residuales
     cleaned = re.sub(r'</?(?:b|i|strong|em|span|p|div|tr|td|table)[^>]*>', '', cleaned, flags=re.IGNORECASE)
     return cleaned
 
@@ -84,7 +102,6 @@ st.markdown(
 # --- OPTIMIZACIÓN DE RECURSOS Y CACHÉ ---
 @st.cache_resource(show_spinner=False)
 def load_embeddings():
-    # Modelo liviano (~120 MB) optimizado para CPU y textos en español
     return HuggingFaceEmbeddings(
         model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         model_kwargs={'device': 'cpu'},
@@ -117,7 +134,6 @@ def setup_rag_retriever():
         if not docs:
             return None
         
-        # Chunking ampliado y adaptado a separadores normativos chilenos
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1200,
             chunk_overlap=250,
@@ -129,24 +145,21 @@ def setup_rag_retriever():
         db = FAISS.from_documents(chunks, embeddings)
         db.save_local(DB_FAISS_PATH)
     
-    # Recuperador Denso (FAISS - Semántico) con mayor alcance
     faiss_retriever = db.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 8}
     )
     
-    # Recuperador Léxico (BM25 - Palabras Clave) para garantizar cobertura de artículos específicos
     all_docs = list(db.docstore._dict.values())
     if all_docs:
         bm25_retriever = BM25Retriever.from_documents(all_docs)
         bm25_retriever.k = 8
         
-        # Ensamble Híbrido (50% semántico, 50% clave exacto)
-        ensemble_retriever = EnsembleRetriever(
-            retrievers=[bm25_retriever, faiss_retriever],
-            weights=[0.5, 0.5]
+        return CustomHybridRetriever(
+            bm25=bm25_retriever,
+            faiss_retriever=faiss_retriever,
+            k=8
         )
-        return ensemble_retriever
     
     return faiss_retriever
 
@@ -166,7 +179,7 @@ if retriever is None:
     st.warning(f"⚠️ No se encontraron documentos (PDF o TXT) en la carpeta `{DATA_PATH}`.")
     st.stop()
 
-# --- PROMPT MEJORADO Y ESTRICTO EN FORMATO ---
+# --- PROMPT DEL SISTEMA ---
 prompt_template = ChatPromptTemplate.from_template(
     """Eres un consultor legal y prevencionista de riesgos experto en la legislación chilena de seguridad y salud ocupacional (Ley 16.744, Decreto Supremo 594, Decreto Supremo 44, Código del Trabajo, etc.).
 
@@ -218,7 +231,6 @@ if user_input := st.chat_input("Escribe tu consulta sobre seguridad laboral, EPP
             placeholder = st.empty()
             full_response = ""
             
-            # Generación en streaming sanitizada en tiempo real
             for chunk in chain.stream({"context": context_text, "question": user_input}):
                 full_response += chunk
                 sanitized_current = sanitize_markdown(full_response)
