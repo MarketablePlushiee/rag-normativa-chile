@@ -9,9 +9,9 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("🛡️ Tu Asistente Experto en Normativa Laboral y Prevención")
+st.title("🛡️ Asistente en Normativa Laboral y Prevención")
 st.markdown(
-    "Hola. Estoy aquí para ayudarte a resolver dudas sobre la legislación de seguridad y salud ocupacional en Chile. "
+    "Estoy aquí para ayudarte a resolver dudas sobre la legislación de seguridad y salud ocupacional en Chile. "
     "Consuto directamente sobre la **Ley 16.744**, el **Decreto Supremo N° 594**, el **Decreto N° 44** y el **Código del Trabajo (Art. 184 y 184 bis)**, entregándote siempre las citas legales exactas."
 )
 
