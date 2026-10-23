@@ -1,0 +1,31 @@
+# Código del Trabajo de Chile
+
+## Libro II: De la Protección a los Trabajadores
+### Título I: Normas Generales
+
+#### Artículo 184
+El empleador estará obligado a tomar todas las medidas necesarias para proteger eficazmente la vida y salud de los trabajadores, informando de los posibles riesgos y manteniendo las condiciones adecuadas de higiene y seguridad en las faenas, como también los implementos necesarios para prevenir accidentes y enfermedades profesionales.
+
+Deberá asimismo prestar o garantizar los elementos necesarios para que los trabajadores en caso de accidente o emergencia puedan acceder a una oportuna y adecuada atención médica, hospitalaria y farmacéutica.
+
+Los organismos administradores del seguro de la Ley Nº 16.744, deberán informar a sus empresas afiliadas sobre los riesgos asociados al uso de pesticidas, plaguicidas y, en general, de productos fitosanitarios.
+
+Corresponderá también a la Dirección del Trabajo fiscalizar el cumplimiento de normas de higiene y seguridad en el trabajo, en los términos señalados en el artículo 191, sin perjuicio de las facultades conferidas a otros servicios del Estado en virtud de las leyes que los rigen.
+
+La Dirección del Trabajo deberá poner en conocimiento del respectivo Organismo Administrador de la Ley Nº 16.744, todas aquellas infracciones o deficiencias en materia de higiene y seguridad, que se constaten en las fiscalizaciones que se practiquen a las empresas. Copia de esta comunicación deberá remitirse a la Superintendencia de Seguridad Social.
+
+El referido Organismo Administrador deberá, en el plazo de 30 días contado desde la notificación, informar a la Dirección del Trabajo y a la Superintendencia de Seguridad Social, acerca de las medidas de seguridad específicas que hubiere prescrito a la empresa infractora para corregir tales infracciones o deficiencias. Corresponderá a la Superintendencia de Seguridad Social velar por el cumplimiento de esta obligación por parte de los Organismos Administradores.
+
+#### Artículo 184 bis
+Sin perjuicio de lo establecido en el artículo precedente, cuando en el lugar de trabajo sobrevenga un riesgo grave e inminente para la vida o salud de los trabajadores, el empleador deberá:
+
+* **a)** Informar inmediatamente a todos los trabajadores afectados sobre la existencia del mencionado riesgo, así como las medidas adoptadas para eliminarlo o atenuarlo.
+* **b)** Adoptar medidas para la suspensión inmediata de las faenas afectadas y la evacuación de los trabajadores, en caso que el riesgo no se pueda eliminar o atenuar.
+
+Con todo, el trabajador tendrá derecho a interrumpir sus labores y, de ser necesario, abandonar el lugar de trabajo cuando considere, por motivos razonables, que continuar con ellas implica un riesgo grave e inminente para su vida o salud. El trabajador que interrumpa sus labores deberá dar cuenta de ese hecho al empleador dentro del más breve plazo, el que deberá informar de la suspensión de las mismas a la Inspección del Trabajo respectiva.
+
+Los trabajadores no podrán sufrir perjuicio o menoscabo alguno derivado de la adopción de las medidas señaladas en este artículo, y podrán siempre ejercer la acción contenida en el Párrafo 6° del Capítulo II del Título I del Libro V del Código del Trabajo.
+
+En caso que la autoridad competente ordene la evacuación de los lugares afectados por una emergencia, catástrofe o desastre, el empleador deberá suspender las labores de forma inmediata y proceder a la evacuación de los trabajadores. La reanudación de las labores sólo podrá efectuarse cuando se garanticen condiciones seguras y adecuadas para la prestación de los servicios.
+
+Corresponderá a la Dirección del Trabajo fiscalizar el cumplimiento de lo dispuesto en este artículo.
