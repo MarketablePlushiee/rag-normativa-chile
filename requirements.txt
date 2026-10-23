@@ -1,10 +1,11 @@
 streamlit
-langchain
+pdfplumber
+pydantic
+langchain-text-splitters
 langchain-community
-langchain-core
 langchain-huggingface
+langchain-core
 langchain-groq
 faiss-cpu
 rank-bm25
 sentence-transformers
-pypdf
