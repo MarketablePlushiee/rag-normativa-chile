@@ -1,0 +1,9 @@
+DECRETO SUPREMO 594 - ARTÍCULO 66: LÍMITES PERMISIBLES PONDERADOS (LPP) Y TEMPORALES (LPT)
+
+- Sustancia: Monóxido de Carbono (CO) | LPP (ppm): 44 ppm | LPP (mg/m3): 48 mg/m3 | Observaciones: Piel
+- Sustancia: Tolueno | LPP (ppm): 87 ppm | LPP (mg/m3): 324 mg/m3 | Observaciones: Piel
+- Sustancia: Benceno | LPP (ppm): 0.8 ppm | LPP (mg/m3): 2.5 mg/m3 | Observaciones: A.1, Piel
+- Sustancia: Plomo | LPP (mg/m3): 0.04 mg/m3 | Observaciones: Piel
+
+DEFINICIÓN Y SIGNIFICADO NORMATIVO DE LA OBSERVACIÓN "PIEL":
+La observación "Piel" en el Decreto Supremo 594 indica que la sustancia química puede ser absorbida a través de la piel humana y las mucosas. En consecuencia, el control de la concentración ambiental (ventilación) no basta por sí solo para prevenir la intoxicación o daño al trabajador, siendo obligatorio el uso de Equipos de Protección Personal (EPP) impermeables y medidas de control directas para evitar el contacto cutáneo.
