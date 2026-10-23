@@ -1,10 +1,14 @@
 import os
+import re
+import shutil
 import streamlit as st
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
@@ -27,6 +31,19 @@ if not groq_api_key:
 
 os.environ["GROQ_API_KEY"] = groq_api_key
 
+# --- FUNCIÓN DE SANITIZACIÓN PARA FORMATO MARKDOWN / HTML ---
+def sanitize_markdown(text: str) -> str:
+    """Elimina etiquetas HTML crudas (como <br>) para corregir la renderización en tablas y listas de Streamlit."""
+    if not text:
+        return ""
+    # Reemplazar etiquetas <br> o <br/> por saltos de línea estándar
+    cleaned = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    # Reemplazar guiones pegados tras salto de línea dentro de celdas de tabla
+    cleaned = re.sub(r'\n-\s*', '\n* ', cleaned)
+    # Limpiar otras etiquetas HTML residuales
+    cleaned = re.sub(r'</?(?:b|i|strong|em|span|p|div|tr|td|table)[^>]*>', '', cleaned, flags=re.IGNORECASE)
+    return cleaned
+
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuración")
@@ -45,7 +62,6 @@ with st.sidebar:
 
     if st.button("🔄 Reconstruir Base Vectorial"):
         if os.path.exists(DB_FAISS_PATH):
-            import shutil
             shutil.rmtree(DB_FAISS_PATH)
         st.cache_resource.clear()
         st.rerun()
@@ -56,6 +72,7 @@ st.markdown(
     "(**Ley 16.744**, **DS 594**, **DS 44**, **Código del Trabajo**, entre otros)."
 )
 
+# --- OPTIMIZACIÓN DE RECURSOS Y CACHÉ ---
 @st.cache_resource(show_spinner=False)
 def load_embeddings():
     # Modelo liviano (~120 MB) optimizado para CPU y textos en español
@@ -91,10 +108,11 @@ def setup_rag_retriever():
         if not docs:
             return None
         
+        # Chunking ampliado y adaptado a separadores normativos chilenos
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            separators=[r"\n(?=Artículo|\nArt\.)", "\n\n", "\n", " ", ""],
+            chunk_size=1200,
+            chunk_overlap=250,
+            separators=[r"\n(?=(?:Artículo|Art\.|Decreto|Título|Capítulo)\b)", "\n\n", "\n", " ", ""],
             is_separator_regex=True
         )
         chunks = text_splitter.split_documents(docs)
@@ -102,10 +120,26 @@ def setup_rag_retriever():
         db = FAISS.from_documents(chunks, embeddings)
         db.save_local(DB_FAISS_PATH)
     
-    return db.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": 5, "fetch_k": 10}
+    # Recuperador Denso (FAISS - Semántico) con mayor alcance
+    faiss_retriever = db.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 8}
     )
+    
+    # Recuperador Léxico (BM25 - Palabras Clave) para garantizar cobertura de artículos específicos
+    all_docs = list(db.docstore._dict.values())
+    if all_docs:
+        bm25_retriever = BM25Retriever.from_documents(all_docs)
+        bm25_retriever.k = 8
+        
+        # Ensamble Híbrido (50% semántico, 50% clave exacto)
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, faiss_retriever],
+            weights=[0.5, 0.5]
+        )
+        return ensemble_retriever
+    
+    return faiss_retriever
 
 def format_docs(docs):
     formatted = []
@@ -123,13 +157,20 @@ if retriever is None:
     st.warning(f"⚠️ No se encontraron documentos (PDF o TXT) en la carpeta `{DATA_PATH}`.")
     st.stop()
 
+# --- PROMPT MEJORADO Y ESTRICTO EN FORMATO ---
 prompt_template = ChatPromptTemplate.from_template(
     """Eres un consultor legal y prevencionista de riesgos experto en la legislación chilena de seguridad y salud ocupacional (Ley 16.744, Decreto Supremo 594, Decreto Supremo 44, Código del Trabajo, etc.).
 
-Instrucciones:
+INSTRUCCIONES OBLIGATORIAS:
 1. Responde a la pregunta del usuario utilizando ESTRICTAMENTE el contexto normativo proporcionado.
-2. Cita expresamente el cuerpo legal y los artículos mencionados cuando corresponda (ej. "Según el DS 594, Art. 21...").
-3. Si la respuesta no está en el contexto, indícalo claramente: "No dispongo de esa información específica en las normativas cargadas." No inventes leyes ni artículos.
+2. REGLA DE FORMATO Y ESTILO:
+   - Queda ESTRICTAMENTE PROHIBIDO el uso de etiquetas HTML (como <br>, <b>, <i>, <span>, etc.).
+   - Utiliza EXCLUSIVAMENTE sintaxis de Markdown estándar (viñetas con *, negrita con **, saltos de línea estándar).
+3. CITAS LEGALES EXPLICITAS:
+   - Cita expresamente el cuerpo legal y los artículos correspondientes (ej. "Según el DS 594, Art. 53...").
+4. COBERTURA Y FIDELIDAD:
+   - Revisa de forma exhaustiva las disposiciones generales y específicas contenidas en el contexto.
+   - Si la normativa o la respuesta específica no figura en el contexto, declara explícitamente: "No dispongo de esa información específica en las normativas cargadas." No inventes leyes, supuestos ni artículos.
 
 Contexto Recuperado:
 {context}
@@ -137,7 +178,7 @@ Contexto Recuperado:
 Pregunta del Usuario:
 {question}
 
-Respuesta Profesional y Estructurada:"""
+Respuesta Profesional y Estructurada (en Markdown puro sin HTML):"""
 )
 
 llm = ChatGroq(
@@ -165,11 +206,17 @@ if user_input := st.chat_input("Escribe tu consulta sobre seguridad laboral, EPP
             
             chain = prompt_template | llm | StrOutputParser()
             
-            def generate_stream():
-                for chunk in chain.stream({"context": context_text, "question": user_input}):
-                    yield chunk
-
-            response_text = st.write_stream(generate_stream())
+            placeholder = st.empty()
+            full_response = ""
+            
+            # Generación en streaming sanitizada en tiempo real
+            for chunk in chain.stream({"context": context_text, "question": user_input}):
+                full_response += chunk
+                sanitized_current = sanitize_markdown(full_response)
+                placeholder.markdown(sanitized_current + "▌")
+            
+            final_response = sanitize_markdown(full_response)
+            placeholder.markdown(final_response)
             
             if docs:
                 with st.expander("📖 Ver fragmentos normativos consultados"):
@@ -178,9 +225,9 @@ if user_input := st.chat_input("Escribe tu consulta sobre seguridad laboral, EPP
                         page = doc.metadata.get("page", None)
                         location = f"Pág. {page + 1}" if page is not None else "Documento TXT"
                         st.markdown(f"**{i}. {source} ({location})**")
-                        st.caption(doc.page_content[:300] + "...")
+                        st.caption(sanitize_markdown(doc.page_content[:300]) + "...")
                         
-            st.session_state.messages.append({"role": "assistant", "content": response_text})
+            st.session_state.messages.append({"role": "assistant", "content": final_response})
             
         except Exception as e:
             st.error(f"Error al procesar la consulta: {e}")
