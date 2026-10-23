@@ -76,11 +76,11 @@ Respuesta profesional y precisa:"""
 
     prompt = ChatPromptTemplate.from_template(template)
     
-    # Modelo actualizado y garantizado en Groq
+    # Modelo exacto disponible en tu panel
     llm = ChatGroq(
-        model="llama-3.1-8b-instant", 
-        temperature=0.1, 
-        api_key=groq_api_key
+        model="openai/gpt-oss-20b",
+        temperature=0.1,
+        api_key=groq_api_key,
     )
     
     chain = (
