@@ -43,7 +43,7 @@ class CustomHybridRetriever(BaseRetriever):
     
     bm25: Any = Field(...)
     faiss_retriever: Any = Field(...)
-    k: int = 8
+    k: int = 12
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
@@ -80,12 +80,8 @@ def clean_pdf_text(text: str) -> str:
     text = re.sub(r'[ \t]+', ' ', text)
     return text
 
-# --- CARGADOR ESPECIALIZADO DE PDF CON PARSING DE TABLAS ---
+# --- CARGADOR ESPECIALIZADO CON PARSER BASADO EN TEXTO Y LÍNEAS PARA LEYCHILE ---
 def load_pdf_documents_with_tables(data_path: str) -> tuple[List[Document], List[Document]]:
-    """
-    Extrae tablas fila por fila usando pdfplumber (para que no se rompan las tablas del DS 594)
-    y retorna tanto los chunks de tablas como el texto plano normal.
-    """
     table_docs = []
     text_docs = []
     
@@ -100,8 +96,13 @@ def load_pdf_documents_with_tables(data_path: str) -> tuple[List[Document], List
                     for page_idx, page in enumerate(pdf.pages):
                         page_num = page_idx
                         
-                        # 1. Extraer Tablas
-                        tables = page.extract_tables()
+                        # 1. Intentar extracción con estrategia basada en texto (para PDFs de LeyChile sin líneas vectoriales)
+                        tables = page.extract_tables({
+                            "vertical_strategy": "text",
+                            "horizontal_strategy": "text",
+                            "snap_tolerance": 3,
+                        })
+                        
                         if tables:
                             for table in tables:
                                 if len(table) > 1 and len(table[0]) >= 2:
@@ -114,16 +115,26 @@ def load_pdf_documents_with_tables(data_path: str) -> tuple[List[Document], List
                                             cell_val = re.sub(r'\s+', ' ', str(cell)).strip() if cell else ""
                                             if cell_val:
                                                 row_pairs.append(f"{h}: {cell_val}")
-                                        if row_pairs:
+                                        if len(row_pairs) >= 2:
                                             row_text = f"Tabla/Valores de {file} (Pág. {page_num + 1}): " + " | ".join(row_pairs)
                                             table_docs.append(Document(
                                                 page_content=clean_pdf_text(row_text),
                                                 metadata={"source": pdf_path, "page": page_num, "is_table": True}
                                             ))
                         
-                        # 2. Extraer Texto Plano
+                        # 2. Scanner por líneas para capturar valores de químicos (Monóxido, Tolueno, LPP, ppm, mg/m3, Piel)
                         raw_text = page.extract_text()
                         if raw_text:
+                            lines = raw_text.split('\n')
+                            for line in lines:
+                                line_clean = clean_pdf_text(line).strip()
+                                lower_line = line_clean.lower()
+                                if any(term in lower_line for term in ["ppm", "mg/m3", "mg/m³", "piel", "monoxido", "monóxido", "tolueno"]) and len(line_clean) > 8:
+                                    table_docs.append(Document(
+                                        page_content=f"Registro Normativo / Valores Contaminantes ({file} Pág. {page_num + 1}): {line_clean}",
+                                        metadata={"source": pdf_path, "page": page_num, "is_table": True}
+                                    ))
+                            
                             text_docs.append(Document(
                                 page_content=clean_pdf_text(raw_text),
                                 metadata={"source": pdf_path, "page": page_num, "is_table": False}
@@ -217,18 +228,18 @@ def setup_rag_retriever():
     
     faiss_retriever = db.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 8}
+        search_kwargs={"k": 12}
     )
     
     all_docs = list(db.docstore._dict.values())
     if all_docs:
         bm25_retriever = BM25Retriever.from_documents(all_docs)
-        bm25_retriever.k = 8
+        bm25_retriever.k = 12
         
         return CustomHybridRetriever(
             bm25=bm25_retriever,
             faiss_retriever=faiss_retriever,
-            k=8
+            k=12
         )
     
     return faiss_retriever
