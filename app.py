@@ -3,10 +3,11 @@ import re
 import shutil
 from typing import List, Any
 import streamlit as st
+import pdfplumber
 
 from pydantic import ConfigDict, Field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
@@ -79,6 +80,59 @@ def clean_pdf_text(text: str) -> str:
     text = re.sub(r'[ \t]+', ' ', text)
     return text
 
+# --- CARGADOR ESPECIALIZADO DE PDF CON PARSING DE TABLAS ---
+def load_pdf_documents_with_tables(data_path: str) -> tuple[List[Document], List[Document]]:
+    """
+    Extrae tablas fila por fila usando pdfplumber (para que no se rompan las tablas del DS 594)
+    y retorna tanto los chunks de tablas como el texto plano normal.
+    """
+    table_docs = []
+    text_docs = []
+    
+    if not os.path.exists(data_path):
+        return table_docs, text_docs
+
+    for file in os.listdir(data_path):
+        if file.lower().endswith(".pdf"):
+            pdf_path = os.path.join(data_path, file)
+            try:
+                with pdfplumber.open(pdf_path) as pdf:
+                    for page_idx, page in enumerate(pdf.pages):
+                        page_num = page_idx
+                        
+                        # 1. Extraer Tablas
+                        tables = page.extract_tables()
+                        if tables:
+                            for table in tables:
+                                if len(table) > 1 and len(table[0]) >= 2:
+                                    headers = [re.sub(r'\s+', ' ', str(h)).strip() if h else f"Col_{i}" for i, h in enumerate(table[0])]
+                                    for row in table[1:]:
+                                        if not any(row):
+                                            continue
+                                        row_pairs = []
+                                        for h, cell in zip(headers, row):
+                                            cell_val = re.sub(r'\s+', ' ', str(cell)).strip() if cell else ""
+                                            if cell_val:
+                                                row_pairs.append(f"{h}: {cell_val}")
+                                        if row_pairs:
+                                            row_text = f"Tabla/Valores de {file} (Pág. {page_num + 1}): " + " | ".join(row_pairs)
+                                            table_docs.append(Document(
+                                                page_content=clean_pdf_text(row_text),
+                                                metadata={"source": pdf_path, "page": page_num, "is_table": True}
+                                            ))
+                        
+                        # 2. Extraer Texto Plano
+                        raw_text = page.extract_text()
+                        if raw_text:
+                            text_docs.append(Document(
+                                page_content=clean_pdf_text(raw_text),
+                                metadata={"source": pdf_path, "page": page_num, "is_table": False}
+                            ))
+            except Exception as e:
+                st.warning(f"Error procesando {file} con pdfplumber: {e}")
+
+    return table_docs, text_docs
+
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuración")
@@ -125,9 +179,10 @@ def setup_rag_retriever():
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
         
-        pdf_loader = PyPDFDirectoryLoader(DATA_PATH)
-        pdf_docs = pdf_loader.load()
+        # Carga especializada de PDFs (Tablas + Texto)
+        pdf_table_docs, pdf_text_docs = load_pdf_documents_with_tables(DATA_PATH)
         
+        # Carga de archivos TXT
         txt_loader = DirectoryLoader(
             DATA_PATH, 
             glob="**/*.txt", 
@@ -135,17 +190,15 @@ def setup_rag_retriever():
             loader_kwargs={'encoding': 'utf-8'}
         )
         txt_docs = txt_loader.load()
-        
-        docs = pdf_docs + txt_docs
-        
-        if not docs:
-            return None
-        
-        # Normalizar el texto extraído de todos los documentos
-        for d in docs:
+        for d in txt_docs:
             d.page_content = clean_pdf_text(d.page_content)
         
-        # Regex insensible a mayúsculas/tildes para dividir correctamente por artículos
+        text_docs_all = pdf_text_docs + txt_docs
+        
+        if not pdf_table_docs and not text_docs_all:
+            return None
+        
+        # Divisor de texto solo para la narrativa continua
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
             chunk_overlap=150,
@@ -158,9 +211,13 @@ def setup_rag_retriever():
             ],
             is_separator_regex=True
         )
-        chunks = text_splitter.split_documents(docs)
         
-        db = FAISS.from_documents(chunks, embeddings)
+        chunks = text_splitter.split_documents(text_docs_all) if text_docs_all else []
+        
+        # Unir los chunks narrativos con las filas de tablas (las filas no se dividen para mantener la coherencia)
+        all_chunks = chunks + pdf_table_docs
+        
+        db = FAISS.from_documents(all_chunks, embeddings)
         db.save_local(DB_FAISS_PATH)
     
     faiss_retriever = db.as_retriever(
