@@ -2,7 +2,7 @@ import os
 import streamlit as st
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain_community.document_loaders import PyPDFDirectoryLoader, DirectoryLoader, TextLoader
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate
@@ -18,19 +18,19 @@ st.set_page_config(
 DB_FAISS_PATH = "vectorstore/db_faiss"
 DATA_PATH = "data/"
 
-# --- BARRA LATERAL / CONFIGURACIÓN ---
+# --- OBTENCIÓN PRIVADA Y SEGURA DE API KEY ---
+groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
+
+if not groq_api_key:
+    st.error("⚠️ No se encontró la API Key de Groq en la configuración del servidor (secrets.toml o variables de entorno).")
+    st.stop()
+
+os.environ["GROQ_API_KEY"] = groq_api_key
+
+# --- BARRA LATERAL / CONFIGURACIÓN LIMPIA ---
 with st.sidebar:
-    st.header("⚙️ Configuración del Sistema")
+    st.header("⚙️ Configuración")
     
-    # Manejo de API Key
-    groq_api_key = st.text_input(
-        "Groq API Key",
-        type="password",
-        value=st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY", ""),
-        help="Obtén tu API key en tu panel de control"
-    )
-    
-    # Modelos actualizados según la lista disponible en tu consola
     selected_model = st.selectbox(
         "Modelo LLM",
         options=[
@@ -42,19 +42,6 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.subheader("📚 Gestión de Documentos")
-    
-    if os.path.exists(DATA_PATH):
-        pdf_files = [f for f in os.listdir(DATA_PATH) if f.endswith(".pdf")]
-        if pdf_files:
-            st.success(f"Archivos cargados en `{DATA_PATH}`: {len(pdf_files)}")
-            for pdf in pdf_files:
-                st.caption(f"• {pdf}")
-        else:
-            st.warning(f"La carpeta `{DATA_PATH}` no contiene archivos PDF.")
-    else:
-        os.makedirs(DATA_PATH)
-        st.info(f"Se ha creado la carpeta `{DATA_PATH}`. Sube tus PDFs normativos allí.")
 
     if st.button("🔄 Reconstruir Base Vectorial"):
         if os.path.exists(DB_FAISS_PATH):
@@ -87,8 +74,21 @@ def setup_rag_retriever():
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
         
-        loader = PyPDFDirectoryLoader(DATA_PATH)
-        docs = loader.load()
+        # 1. Cargar PDFs
+        pdf_loader = PyPDFDirectoryLoader(DATA_PATH)
+        pdf_docs = pdf_loader.load()
+        
+        # 2. Cargar TXT
+        txt_loader = DirectoryLoader(
+            DATA_PATH, 
+            glob="**/*.txt", 
+            loader_cls=TextLoader, 
+            loader_kwargs={'encoding': 'utf-8'}
+        )
+        txt_docs = txt_loader.load()
+        
+        # Combinar todos los documentos cargados
+        docs = pdf_docs + txt_docs
         
         if not docs:
             return None
@@ -115,21 +115,16 @@ def format_docs(docs):
     formatted = []
     for d in docs:
         source = os.path.basename(d.metadata.get("source", "Documento"))
-        page = d.metadata.get("page", 0) + 1
-        formatted.append(f"--- Fuente: {source} (Pág. {page}) ---\n{d.page_content}")
+        page = d.metadata.get("page", None)
+        location = f"Pág. {page + 1}" if page is not None else "Documento TXT"
+        formatted.append(f"--- Fuente: {source} ({location}) ---\n{d.page_content}")
     return "\n\n".join(formatted)
 
-if not groq_api_key:
-    st.info("💡 Por favor, ingresa tu **API Key** en la barra lateral para comenzar.")
-    st.stop()
-
-os.environ["GROQ_API_KEY"] = groq_api_key
-
-with st.spinner("Cargando modelos y base normativa..."):
+with st.spinner("Cargando base normativa..."):
     retriever = setup_rag_retriever()
 
 if retriever is None:
-    st.warning(f"⚠️ No se encontraron documentos PDF en la carpeta `{DATA_PATH}`. Añade las normativas en formato PDF y reconstruye la base vectorial.")
+    st.warning(f"⚠️ No se encontraron documentos (PDF o TXT) en la carpeta `{DATA_PATH}`. Sube los archivos requeridos y presiona 'Reconstruir Base Vectorial'.")
     st.stop()
 
 prompt_template = ChatPromptTemplate.from_template(
@@ -168,8 +163,6 @@ if user_input := st.chat_input("Escribe tu consulta sobre seguridad laboral, EPP
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        
         try:
             docs = retriever.invoke(user_input)
             context_text = format_docs(docs)
@@ -185,9 +178,10 @@ if user_input := st.chat_input("Escribe tu consulta sobre seguridad laboral, EPP
             if docs:
                 with st.expander("📖 Ver fragmentos normativos consultados"):
                     for i, doc in enumerate(docs, 1):
-                        source = os.path.basename(doc.metadata.get("source", "PDF"))
-                        page = doc.metadata.get("page", 0) + 1
-                        st.markdown(f"**{i}. {source} (Pág. {page})**")
+                        source = os.path.basename(doc.metadata.get("source", "Documento"))
+                        page = doc.metadata.get("page", None)
+                        location = f"Pág. {page + 1}" if page is not None else "Documento TXT"
+                        st.markdown(f"**{i}. {source} ({location})**")
                         st.caption(doc.page_content[:300] + "...")
                         
             st.session_state.messages.append({"role": "assistant", "content": response_text})
