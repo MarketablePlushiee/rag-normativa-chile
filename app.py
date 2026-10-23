@@ -72,18 +72,16 @@ def sanitize_markdown(text: str) -> str:
     cleaned = re.sub(r'</?(?:b|i|strong|em|span|p|div|tr|td|table)[^>]*>', '', cleaned, flags=re.IGNORECASE)
     return cleaned
 
-# --- BARRA LATERAL CON MODELOS OFICIALES DE GROQ ---
+# --- BARRA LATERAL CON MODELOS DISPONIBLES EN TU CATÁLOGO ---
 with st.sidebar:
     st.header("⚙️ Configuración")
     
     selected_model = st.selectbox(
         "Modelo LLM",
         options=[
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it",
-            "deepseek-r1-distill-llama-70b"
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b"
         ],
         index=0
     )
