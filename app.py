@@ -22,21 +22,18 @@ st.markdown(
     "Consulto directamente sobre la **Ley 16.744**, el **Decreto Supremo N° 594**, el **Decreto N° 44** y el **Código del Trabajo**."
 )
 
-# Configuración de rutas y almacenamiento local
 DB_FAISS_PATH = "vectorstore/db_faiss"
 DATA_PATH = "data/"
 
 @st.cache_resource
 def setup_rag_chain():
-    # Obtener API key de Groq desde los secrets de Streamlit o variables de entorno
     groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
     if groq_api_key:
         os.environ["GROQ_API_KEY"] = groq_api_key
 
-    # Usando embeddings de Hugging Face
     embeddings = HuggingFaceEmbeddings(
         model_name="BAAI/bge-m3",
-        model_kwargs={'device': 'cpu'},  # En Streamlit Cloud corre en CPU
+        model_kwargs={'device': 'cpu'},
         encode_kwargs={'normalize_embeddings': True}
     )
     
@@ -78,7 +75,13 @@ Pregunta:
 Respuesta profesional y precisa:"""
 
     prompt = ChatPromptTemplate.from_template(template)
-    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+    
+    # Modelo actualizado y garantizado en Groq
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant", 
+        temperature=0.1, 
+        api_key=groq_api_key
+    )
     
     chain = (
         {"context": retriever | (lambda docs: "\n\n".join([d.page_content for d in docs])), "question": RunnablePassthrough()}
@@ -89,7 +92,6 @@ Respuesta profesional y precisa:"""
     
     return chain
 
-# Inicializar motor RAG
 with st.spinner("Cargando base de conocimiento y modelos..."):
     try:
         rag_chain = setup_rag_chain()
@@ -97,7 +99,6 @@ with st.spinner("Cargando base de conocimiento y modelos..."):
         rag_chain = None
         st.error(f"Error al inicializar el sistema RAG: {e}")
 
-# Historial de chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -105,7 +106,6 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Entrada del usuario
 if prompt := st.chat_input("Escribe tu consulta sobre seguridad laboral, comités paritarios, EPP o normativas..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -115,7 +115,7 @@ if prompt := st.chat_input("Escribe tu consulta sobre seguridad laboral, comité
         message_placeholder = st.empty()
         
         if not rag_chain:
-            response_text = "⚠️ El sistema RAG no se pudo inicializar. Asegúrate de configurar tu GROQ_API_KEY en los Secrets de Streamlit y tener PDFs en la carpeta data/."
+            response_text = "⚠️ El sistema RAG no se pudo inicializar. Revisa los secretos o la carpeta data/."
         else:
             with st.spinner("Buscando en la normativa chilena y generando respuesta..."):
                 try:
