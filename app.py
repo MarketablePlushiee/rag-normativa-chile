@@ -18,16 +18,16 @@ st.set_page_config(
 DB_FAISS_PATH = "vectorstore/db_faiss"
 DATA_PATH = "data/"
 
-# --- OBTENCIÓN PRIVADA Y SEGURA DE API KEY ---
+# --- OBTENCIÓN DE API KEY ---
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
 
 if not groq_api_key:
-    st.error("⚠️ No se encontró la API Key de Groq en la configuración del servidor (secrets.toml o variables de entorno).")
+    st.error("⚠️ No se encontró la API Key de Groq en la configuración del servidor.")
     st.stop()
 
 os.environ["GROQ_API_KEY"] = groq_api_key
 
-# --- BARRA LATERAL / CONFIGURACIÓN LIMPIA ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ Configuración")
     
@@ -58,8 +58,9 @@ st.markdown(
 
 @st.cache_resource(show_spinner=False)
 def load_embeddings():
+    # Modelo liviano (~120 MB) optimizado para CPU y textos en español
     return HuggingFaceEmbeddings(
-        model_name="BAAI/bge-m3",
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         model_kwargs={'device': 'cpu'},
         encode_kwargs={'normalize_embeddings': True}
     )
@@ -74,11 +75,9 @@ def setup_rag_retriever():
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
         
-        # 1. Cargar PDFs
         pdf_loader = PyPDFDirectoryLoader(DATA_PATH)
         pdf_docs = pdf_loader.load()
         
-        # 2. Cargar TXT
         txt_loader = DirectoryLoader(
             DATA_PATH, 
             glob="**/*.txt", 
@@ -87,7 +86,6 @@ def setup_rag_retriever():
         )
         txt_docs = txt_loader.load()
         
-        # Combinar todos los documentos cargados
         docs = pdf_docs + txt_docs
         
         if not docs:
@@ -104,12 +102,10 @@ def setup_rag_retriever():
         db = FAISS.from_documents(chunks, embeddings)
         db.save_local(DB_FAISS_PATH)
     
-    faiss_retriever = db.as_retriever(
+    return db.as_retriever(
         search_type="mmr",
         search_kwargs={"k": 5, "fetch_k": 10}
     )
-    
-    return faiss_retriever
 
 def format_docs(docs):
     formatted = []
@@ -124,7 +120,7 @@ with st.spinner("Cargando base normativa..."):
     retriever = setup_rag_retriever()
 
 if retriever is None:
-    st.warning(f"⚠️ No se encontraron documentos (PDF o TXT) en la carpeta `{DATA_PATH}`. Sube los archivos requeridos y presiona 'Reconstruir Base Vectorial'.")
+    st.warning(f"⚠️ No se encontraron documentos (PDF o TXT) en la carpeta `{DATA_PATH}`.")
     st.stop()
 
 prompt_template = ChatPromptTemplate.from_template(
