@@ -43,7 +43,7 @@ class CustomHybridRetriever(BaseRetriever):
     
     bm25: Any = Field(...)
     faiss_retriever: Any = Field(...)
-    k: int = 10
+    k: int = 8
 
     def _get_relevant_documents(
         self, query: str, *, run_manager: CallbackManagerForRetrieverRun = None
@@ -179,10 +179,8 @@ def setup_rag_retriever():
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
         
-        # Carga especializada de PDFs (Tablas + Texto)
         pdf_table_docs, pdf_text_docs = load_pdf_documents_with_tables(DATA_PATH)
         
-        # Carga de archivos TXT
         txt_loader = DirectoryLoader(
             DATA_PATH, 
             glob="**/*.txt", 
@@ -198,7 +196,6 @@ def setup_rag_retriever():
         if not pdf_table_docs and not text_docs_all:
             return None
         
-        # Divisor de texto solo para la narrativa continua
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
             chunk_overlap=150,
@@ -213,8 +210,6 @@ def setup_rag_retriever():
         )
         
         chunks = text_splitter.split_documents(text_docs_all) if text_docs_all else []
-        
-        # Unir los chunks narrativos con las filas de tablas (las filas no se dividen para mantener la coherencia)
         all_chunks = chunks + pdf_table_docs
         
         db = FAISS.from_documents(all_chunks, embeddings)
@@ -222,18 +217,18 @@ def setup_rag_retriever():
     
     faiss_retriever = db.as_retriever(
         search_type="similarity",
-        search_kwargs={"k": 10}
+        search_kwargs={"k": 8}
     )
     
     all_docs = list(db.docstore._dict.values())
     if all_docs:
         bm25_retriever = BM25Retriever.from_documents(all_docs)
-        bm25_retriever.k = 10
+        bm25_retriever.k = 8
         
         return CustomHybridRetriever(
             bm25=bm25_retriever,
             faiss_retriever=faiss_retriever,
-            k=10
+            k=8
         )
     
     return faiss_retriever
@@ -338,4 +333,4 @@ if user_input := st.chat_input("Escribe tu consulta sobre seguridad laboral, EPP
             st.session_state.messages.append({"role": "assistant", "content": final_response})
             
         except Exception as e:
-            st.error(f"Error al procesar la consulta: {e}")
+            st.error(f"Error al procesar la consulta: {type(e).__name__} - {str(e)}")
