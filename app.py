@@ -63,7 +63,6 @@ class CustomHybridRetriever(BaseRetriever):
                     break
         return merged
 
-# --- FUNCIÓN DE SANITIZACIÓN PARA FORMATO MARKDOWN / HTML ---
 def sanitize_markdown(text: str) -> str:
     if not text:
         return ""
@@ -73,15 +72,14 @@ def sanitize_markdown(text: str) -> str:
     return cleaned
 
 def clean_pdf_text(text: str) -> str:
-    """Limpia caracteres invisibles y estandariza encabezados de artículos."""
     if not text:
         return ""
     text = text.replace('\xa0', ' ').replace('\r', '\n')
     text = re.sub(r'[ \t]+', ' ', text)
     return text
 
-# --- CARGADOR ESPECIALIZADO CON PARSER BASADO EN TEXTO Y LÍNEAS PARA LEYCHILE ---
-def load_pdf_documents_with_tables(data_path: str) -> tuple[List[Document], List[Document]]:
+# --- CARGADOR ULTRA RÁPIDO DE PDF (PARSING POR LÍNEAS DE ALTA VELOCIDAD) ---
+def load_pdf_documents_fast(data_path: str) -> tuple[List[Document], List[Document]]:
     table_docs = []
     text_docs = []
     
@@ -93,54 +91,30 @@ def load_pdf_documents_with_tables(data_path: str) -> tuple[List[Document], List
             pdf_path = os.path.join(data_path, file)
             try:
                 with pdfplumber.open(pdf_path) as pdf:
-                    for page_idx, page in enumerate(pdf.pages):
-                        page_num = page_idx
-                        
-                        # 1. Intentar extracción con estrategia basada en texto (para PDFs de LeyChile sin líneas vectoriales)
-                        tables = page.extract_tables({
-                            "vertical_strategy": "text",
-                            "horizontal_strategy": "text",
-                            "snap_tolerance": 3,
-                        })
-                        
-                        if tables:
-                            for table in tables:
-                                if len(table) > 1 and len(table[0]) >= 2:
-                                    headers = [re.sub(r'\s+', ' ', str(h)).strip() if h else f"Col_{i}" for i, h in enumerate(table[0])]
-                                    for row in table[1:]:
-                                        if not any(row):
-                                            continue
-                                        row_pairs = []
-                                        for h, cell in zip(headers, row):
-                                            cell_val = re.sub(r'\s+', ' ', str(cell)).strip() if cell else ""
-                                            if cell_val:
-                                                row_pairs.append(f"{h}: {cell_val}")
-                                        if len(row_pairs) >= 2:
-                                            row_text = f"Tabla/Valores de {file} (Pág. {page_num + 1}): " + " | ".join(row_pairs)
-                                            table_docs.append(Document(
-                                                page_content=clean_pdf_text(row_text),
-                                                metadata={"source": pdf_path, "page": page_num, "is_table": True}
-                                            ))
-                        
-                        # 2. Scanner por líneas para capturar valores de químicos (Monóxido, Tolueno, LPP, ppm, mg/m3, Piel)
+                    for page_num, page in enumerate(pdf.pages):
                         raw_text = page.extract_text()
-                        if raw_text:
-                            lines = raw_text.split('\n')
-                            for line in lines:
-                                line_clean = clean_pdf_text(line).strip()
-                                lower_line = line_clean.lower()
-                                if any(term in lower_line for term in ["ppm", "mg/m3", "mg/m³", "piel", "monoxido", "monóxido", "tolueno"]) and len(line_clean) > 8:
-                                    table_docs.append(Document(
-                                        page_content=f"Registro Normativo / Valores Contaminantes ({file} Pág. {page_num + 1}): {line_clean}",
-                                        metadata={"source": pdf_path, "page": page_num, "is_table": True}
-                                    ))
-                            
-                            text_docs.append(Document(
-                                page_content=clean_pdf_text(raw_text),
-                                metadata={"source": pdf_path, "page": page_num, "is_table": False}
-                            ))
+                        if not raw_text:
+                            continue
+                        
+                        clean_text_val = clean_pdf_text(raw_text)
+                        lines = clean_text_val.split('\n')
+                        
+                        # Extraer instantáneamente líneas con valores de contaminantes y tablas
+                        for line in lines:
+                            line_str = line.strip()
+                            lower_l = line_str.lower()
+                            if any(k in lower_l for k in ["ppm", "mg/m3", "mg/m³", "lpp", "lpt", "piel", "monoxido", "monóxido", "tolueno"]) and len(line_str) > 6:
+                                table_docs.append(Document(
+                                    page_content=f"Dato Tabular / LPP ({file} Pág. {page_num + 1}): {line_str}",
+                                    metadata={"source": pdf_path, "page": page_num, "is_table": True}
+                                ))
+                        
+                        text_docs.append(Document(
+                            page_content=clean_text_val,
+                            metadata={"source": pdf_path, "page": page_num, "is_table": False}
+                        ))
             except Exception as e:
-                st.warning(f"Error procesando {file} con pdfplumber: {e}")
+                st.warning(f"Error procesando {file}: {e}")
 
     return table_docs, text_docs
 
@@ -190,7 +164,7 @@ def setup_rag_retriever():
         if not os.path.exists(DATA_PATH):
             os.makedirs(DATA_PATH)
         
-        pdf_table_docs, pdf_text_docs = load_pdf_documents_with_tables(DATA_PATH)
+        pdf_table_docs, pdf_text_docs = load_pdf_documents_fast(DATA_PATH)
         
         txt_loader = DirectoryLoader(
             DATA_PATH, 
