@@ -76,9 +76,8 @@ Respuesta profesional y precisa:"""
 
     prompt = ChatPromptTemplate.from_template(template)
     
-    # Modelo exacto disponible en tu panel
     llm = ChatGroq(
-        model="openai/gpt-oss-20b",
+        model="openai/gpt-oss-120b",
         temperature=0.1,
         api_key=groq_api_key,
     )
